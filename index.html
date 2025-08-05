@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>BridgeTalk</title>
+</head>
+<body>
+    <h1>BridgeTalk</h1>
+
+    <label for="konusmaID">Konuşma ID:</label><br>
+    <input type="text" name="konusmaID" required><br><br>
+
+    <label for="mesaj">Yazılı mesaj:</label><br>
+    <textarea name="mesaj" rows="4" cols="50"></textarea><br><br>
+
+    <!-- Mikrofon kayıt butonu -->
+    <button id="recordBtn">🎙 Kaydı Başlat</button>
+    <audio id="audioPlayback" controls></audio>
+
+    <!-- Sonuçların gösterileceği alan -->
+    <div id="resultBox" style="margin-top:20px;"></div>
+
+    <script>
+    let mediaRecorder;
+    let audioChunks = [];
+
+    document.getElementById("recordBtn").addEventListener("click", async () => {
+        if (!mediaRecorder || mediaRecorder.state === "inactive") {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+                    audioChunks = [];
+
+                    // Önizleme için ses URL'si oluştur
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    document.getElementById("audioPlayback").src = audioUrl;
+
+                    // Form verilerini hazırla
+                    const formData = new FormData();
+                    formData.append("konusmaID",
+                        document.querySelector('input[name="konusmaID"]').value || "genel");
+                    formData.append("mesaj",
+                        document.querySelector('textarea[name="mesaj"]').value || "");
+                    formData.append("dosya", audioBlob, "recording.wav");
+
+                    // Backend'e gönder
+                    const resp = await fetch("/", { method: "POST", body: formData });
+                    const data = await resp.json();
+
+                    // Sonucu ekrana yaz
+                    document.getElementById("resultBox").innerHTML = `
+                        <h3>Transkript</h3>
+                        <pre>${(data.transkript || "").replace(/</g, "&lt;")}</pre>
+                        <h3>Analiz</h3>
+                        <pre>${(data.analiz || "").replace(/</g, "&lt;")}</pre>
+                    `;
+                };
+
+                mediaRecorder.start();
+                document.getElementById("recordBtn").innerText = "⏹ Kaydı Bitir";
+            } catch (err) {
+                alert("Mikrofon izni verilmedi veya hata oluştu: " + err.message);
+            }
+        } else {
+            mediaRecorder.stop();
+            document.getElementById("recordBtn").innerText = "🎙 Kaydı Başlat";
+        }
+    });
+    </script>
+</body>
+</html>
