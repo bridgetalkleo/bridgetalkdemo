@@ -1,33 +1,101 @@
-const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const app = express();
-const PORT = 3000;
-
-app.use(express.static('public'));
-
-// Upload klasörü ayarlanıyor
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/')
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname))
-  }
+// === Yazılı mesaj gönderme ===
+document.getElementById('sendTextBtn').addEventListener('click', async () => {
+ const konusma_id = document.getElementById('konusma_id').value.trim();
+ const text = document.getElementById('textMessage').value.trim();
+ if (!konusma_id || !text) {
+   alert("Konuşma ID ve mesaj gerekli.");
+   return;
+ }
+ try {
+   const res = await fetch('/message', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ konusma_id, text })
+   });
+   const data = await res.json();
+   if (data.ok) {
+     alert("Mesaj gönderildi!");
+     document.getElementById('textMessage').value = "";
+   } else {
+     alert("Hata: " + data.error);
+   }
+ } catch (err) {
+   alert("Hata: " + err.message);
+ }
 });
 
-const upload = multer({ storage });
+// === Ses kaydı ===
+let mediaRecorder;
+let audioChunks = [];
 
-// Form verilerini yakalama
-app.post('/upload', upload.single('audio'), (req, res) => {
-  const conversationId = req.body.conversationId;
-  const text = req.body.text;
-  const audioPath = req.file.path;
+document.getElementById('startRecBtn').addEventListener('click', async () => {
+ const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+ mediaRecorder = new MediaRecorder(stream);
+ audioChunks = [];
 
-  console.log('Gelen veri:', { conversationId, text, audioPath });
-  res.send('Yükleme başarılı!');
+ mediaRecorder.addEventListener('dataavailable', event => {
+   audioChunks.push(event.data);
+ });
+
+ mediaRecorder.addEventListener('stop', async () => {
+   const konusma_id = document.getElementById('konusma_id').value.trim();
+   if (!konusma_id) {
+     alert("Konuşma ID gerekli.");
+     return;
+   }
+   const blob = new Blob(audioChunks, { type: 'audio/webm' });
+   const formData = new FormData();
+   formData.append('audio', blob, 'recording.webm');
+   formData.append('konusma_id', konusma_id);
+
+   try {
+     const res = await fetch('/upload', { method: 'POST', body: formData });
+     const data = await res.json();
+     if (data.ok) {
+       alert("Ses yüklendi: " + data.text);
+     } else {
+       alert("Hata: " + data.error);
+     }
+   } catch (err) {
+     alert("Hata: " + err.message);
+   }
+ });
+
+ mediaRecorder.start();
+ document.getElementById('startRecBtn').disabled = true;
+ document.getElementById('stopRecBtn').disabled = false;
 });
 
-app.listen(PORT, () => {
-  console.log(`Sunucu çalışıyor: http://localhost:${PORT}`);
+document.getElementById('stopRecBtn').addEventListener('click', () => {
+ mediaRecorder.stop();
+ document.getElementById('startRecBtn').disabled = false;
+ document.getElementById('stopRecBtn').disabled = true;
+});
+
+// === Analiz Et ===
+document.getElementById('analyzeBtn').addEventListener('click', async () => {
+ const convId = document.getElementById('analysisConvId').value.trim();
+ if (!convId) {
+   alert("Lütfen konuşma ID girin.");
+   return;
+ }
+
+ document.getElementById('analysisResult').textContent = "Analiz yapılıyor...";
+
+ try {
+   const res = await fetch('/finalize', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ konusma_id: convId })
+   });
+
+   const data = await res.json();
+   if (data.ok) {
+     document.getElementById('analysisResult').textContent = data.summary;
+   } else {
+     document.getElementById('analysisResult').textContent = "Analiz yapılamadı: " + (data.error || "Bilinmeyen hata");
+   }
+ } catch (err) {
+   document.getElementById('analysisResult').textContent = "Hata: " + err.message;
+ }
 });
