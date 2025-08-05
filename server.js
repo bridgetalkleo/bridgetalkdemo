@@ -15,6 +15,10 @@ const app  = express();
 const PORT = 3000;
 
 app.use(express.static('public'));
+// Ana sayfa route
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 app.use(express.urlencoded({ extended: true }));
 
 // ==== Dinamik upload klasörü (konuşmaID'ye göre) ====
