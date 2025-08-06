@@ -7,6 +7,10 @@ import fetch from "node-fetch";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// === Yeni eklenenler (ses yükleme için) ===
+import multer from "multer";
+import FormData from "form-data";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 3000;
@@ -20,10 +24,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
+// === Multer: ses dosyasını hafızada tutalım (Render diskine yazmadan) ===
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 } // 20MB limit
+});
+
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// REST Endpoints
+// ---------- REST ENDPOINTS ----------
 app.post("/api/create-conversation", (req, res) => {
   const id = randomUUID();
   conversations.set(id, {
@@ -54,7 +64,45 @@ app.get("/join/:conversationId", (req, res) => {
   res.send(`<html><body><p>Konuşma ID: <b>${cid}</b></p><a href="/">Ana sayfaya dön</a></body></html>`);
 });
 
-// Socket
+// === SES YÜKLEME + WHISPER STT ===
+app.post("/api/upload-audio", upload.single("audio"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "audio dosyası gelmedi" });
+
+    // OpenAI Whisper API'ye multipart gönder
+    const form = new FormData();
+    form.append("file", req.file.buffer, {
+      filename: req.file.originalname || "recording.webm",
+      contentType: req.file.mimetype || "audio/webm",
+      knownLength: req.file.size
+    });
+    form.append("model", "whisper-1");
+    // İstersen dil ipucu: form.append("language", "tr");
+    // form.append("response_format", "json");
+
+    const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        ...form.getHeaders()
+      },
+      body: form
+    });
+
+    if (!resp.ok) {
+      const txt = await resp.text();
+      return res.status(500).json({ error: "Whisper hatası", detail: txt });
+    }
+
+    const data = await resp.json();
+    return res.json({ text: data.text || "" });
+  } catch (err) {
+    console.error("upload-audio error:", err);
+    return res.status(500).json({ error: "STT hata", detail: String(err?.message || err) });
+  }
+});
+
+// ---------- SOCKET ----------
 io.on("connection", (socket) => {
   socket.on("joinRoom", ({ conversationId, participantId }) => {
     const p = participants.get(participantId);
@@ -112,7 +160,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// Helpers
+// ---------- HELPERS ----------
 function mkMsg(conversationId, authorId, role, text, visibleTo) {
   return { id: randomUUID(), conversationId, authorId, role, text, createdAt: Date.now(), visibleTo };
 }
@@ -208,7 +256,7 @@ async function createSharedSummary(conv) {
   return await callLLM(sys, usr);
 }
 
-// OpenAI API entegrasyonu
+// ---------- OpenAI Chat (yanıt) ----------
 async function callLLM(system, user) {
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
