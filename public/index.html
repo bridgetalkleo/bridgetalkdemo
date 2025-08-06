@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>BridgeLogDemo – Akıllı Karşılama</title>
+  <title>BridgeTalk – Yazı + Sesli Mesaj</title>
   <style>
     body { font-family: system-ui, Arial; max-width: 760px; margin: 0 auto; padding: 16px; }
     .row { display: flex; gap: 8px; margin: 8px 0; }
@@ -12,10 +12,11 @@
     .me { background: #f7fff6; }
     .broadcast { background: #fffbe6; }
     small { color: #666; }
+    button { padding: 6px 10px; }
   </style>
 </head>
 <body>
-  <h2>BridgeLogDemo – Akıllı Karşılama + Ortak Oda</h2>
+  <h2>BridgeTalk – Yazı + Sesli Mesaj</h2>
 
   <div class="row">
     <input id="conversationId" placeholder="Konuşma ID (boşsa yeni açılır)" style="flex:1">
@@ -31,14 +32,22 @@
 
   <div id="feed"></div>
 
+  <!-- Yazı mesaj -->
   <div class="row">
     <input id="text" placeholder="Mesaj yaz..." style="flex:1">
     <button id="sendBtn">Gönder</button>
   </div>
 
+  <!-- Ses kaydı -->
+  <div class="row">
+    <button id="recordBtn">🎙 Ses Kaydet</button>
+    <button id="stopBtn" disabled>⏹ Durdur</button>
+  </div>
+
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
     let socket, participantId, conversationId;
+    let mediaRecorder, audioChunks = [];
 
     const feed = document.getElementById("feed");
     function addMsg(cls, text) {
@@ -63,7 +72,6 @@
         cid = js.conversationId;
         document.getElementById("conversationId").value = cid;
 
-        // Davet linkini göster
         document.getElementById("inviteBox").style.display = "block";
         document.getElementById("inviteLink").textContent = `${location.origin}/join/${cid}`;
       }
@@ -88,16 +96,57 @@
 
     function send() {
       const text = document.getElementById("text").value.trim();
-      if (!text) return;
+      if (!text) {
+        alert("Lütfen bir mesaj yaz");
+        return;
+      }
+      if (!socket) {
+        alert("Önce 'Başla' butonuna basmalısın!");
+        return;
+      }
+      console.log("Mesaj gönderiliyor:", text);
       socket.emit("userMessage", { text });
       document.getElementById("text").value = "";
     }
 
+    // Ses kaydı başlat
+    document.getElementById("recordBtn").addEventListener("click", async () => {
+      if (!socket) {
+        alert("Önce 'Başla' butonuna basmalısın!");
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, { type: "audio/webm" });
+        const formData = new FormData();
+        formData.append("audio", blob, "recording.webm");
+
+        const resp = await fetch("/api/upload-audio", { method: "POST", body: formData });
+        const data = await resp.json();
+        if (data?.text) {
+          socket.emit("userMessage", { text: data.text });
+        } else {
+          alert("Ses metne çevrilemedi.");
+        }
+      };
+      mediaRecorder.start();
+      document.getElementById("recordBtn").disabled = true;
+      document.getElementById("stopBtn").disabled = false;
+    });
+
+    // Ses kaydı durdur
+    document.getElementById("stopBtn").addEventListener("click", () => {
+      mediaRecorder.stop();
+      document.getElementById("recordBtn").disabled = false;
+      document.getElementById("stopBtn").disabled = true;
+    });
+
     document.getElementById("startBtn").onclick = start;
     document.getElementById("sendBtn").onclick = send;
-    document.getElementById("text").addEventListener("keydown", (e) => { 
-      if (e.key === "Enter") send(); 
-    });
+    document.getElementById("text").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
   </script>
 </body>
 </html>
