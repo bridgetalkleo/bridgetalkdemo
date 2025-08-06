@@ -1,35 +1,103 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="tr">
 <head>
- <meta charset="UTF-8" />
- <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
- <title>BridgeTalk</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BridgeLogDemo – Akıllı Karşılama</title>
+  <style>
+    body { font-family: system-ui, Arial; max-width: 760px; margin: 0 auto; padding: 16px; }
+    .row { display: flex; gap: 8px; margin: 8px 0; }
+    .msg { border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin: 6px 0; }
+    .ai { background: #f6f8ff; }
+    .me { background: #f7fff6; }
+    .broadcast { background: #fffbe6; }
+    small { color: #666; }
+  </style>
 </head>
 <body>
- <h1>BridgeTalk</h1>
+  <h2>BridgeLogDemo – Akıllı Karşılama + Ortak Oda</h2>
 
- <!-- Konuşma ID -->
- <label>Konuşma ID:</label>
- <input type="text" id="konusma_id" placeholder="Ortak ID">
- <br><br>
+  <div class="row">
+    <input id="conversationId" placeholder="Konuşma ID (boşsa yeni açılır)" style="flex:1">
+    <input id="displayName" placeholder="Adın" style="flex:1">
+    <button id="startBtn">Başla</button>
+  </div>
 
- <!-- Yazılı Mesaj -->
- <label>Yazılı mesaj:</label>
- <input type="text" id="textMessage" placeholder="Mesajınızı yazın">
- <button id="sendTextBtn">Gönder</button>
- <br><br>
+  <div id="inviteBox" style="display:none" class="msg">
+    <b>Davet Linki:</b>
+    <div><code id="inviteLink"></code></div>
+    <small>Bu linki diğer tarafa gönder. O da aynı odaya girecek.</small>
+  </div>
 
- <!-- Ses Kaydı -->
- <button id="startRecBtn">Kaydı Başlat</button>
- <button id="stopRecBtn" disabled>Kaydı Durdur ve Gönder</button>
- <br><br>
+  <div id="feed"></div>
 
- <!-- Analiz Et -->
- <input type="text" id="analysisConvId" placeholder="Konuşma ID" style="padding:5px;">
- <button id="analyzeBtn">Analiz Et</button>
+  <div class="row">
+    <input id="text" placeholder="Mesaj yaz..." style="flex:1">
+    <button id="sendBtn">Gönder</button>
+  </div>
 
- <div id="analysisResult" style="margin-top:20px; white-space:pre-wrap; border:1px solid #ccc; padding:10px;"></div>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    let socket, participantId, conversationId;
 
- <script src="script.js"></script>
+    const feed = document.getElementById("feed");
+    function addMsg(cls, text) {
+      const div = document.createElement("div");
+      div.className = "msg " + cls;
+      div.textContent = text;
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    async function start() {
+      const name = document.getElementById("displayName").value || "Anon";
+      let cid = document.getElementById("conversationId").value.trim();
+
+      if (!cid) {
+        const r = await fetch("/api/create-conversation", { 
+          method:"POST", 
+          headers:{ "Content-Type":"application/json"},
+          body: JSON.stringify({ topic: "" })
+        });
+        const js = await r.json();
+        cid = js.conversationId;
+        document.getElementById("conversationId").value = cid;
+
+        // Davet linkini göster
+        document.getElementById("inviteBox").style.display = "block";
+        document.getElementById("inviteLink").textContent = `${location.origin}/join/${cid}`;
+      }
+
+      const join = await fetch("/api/join", { 
+        method:"POST", 
+        headers:{ "Content-Type":"application/json"},
+        body: JSON.stringify({ conversationId: cid, displayName: name })
+      });
+      const jr = await join.json();
+      participantId = jr.participantId;
+      conversationId = cid;
+
+      socket = io("/", { transports:["websocket"] });
+      socket.on("connect", () => socket.emit("joinRoom", { conversationId, participantId }));
+      socket.on("aiMessage", ({ text }) => addMsg("ai", text));
+      socket.on("aiBroadcast", ({ text }) => addMsg("broadcast", text));
+      socket.on("userEcho", (m) => addMsg("me", m.text));
+
+      addMsg("ai", "Bağlandın. AI seni karşılayacak; olayı serbestçe anlatabilirsin.");
+    }
+
+    function send() {
+      const text = document.getElementById("text").value.trim();
+      if (!text) return;
+      socket.emit("userMessage", { text });
+      document.getElementById("text").value = "";
+    }
+
+    document.getElementById("startBtn").onclick = start;
+    document.getElementById("sendBtn").onclick = send;
+    document.getElementById("text").addEventListener("keydown", (e) => { 
+      if (e.key === "Enter") send(); 
+    });
+  </script>
 </body>
 </html>
