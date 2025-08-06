@@ -1,5 +1,5 @@
 {
-  "name": "bridgelogdemo",
+  "name": "bridgeltalkdemo",
   "type": "module",
   "version": "1.0.0",
   "scripts": {
@@ -8,6 +8,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "node-fetch": "^3.3.2"
   }
 }
